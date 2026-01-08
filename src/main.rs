@@ -1,9 +1,12 @@
 use std::mem;
 
 use libc::{
-    F_GETFL, F_SETFL, FD_ISSET, FD_SET, O_NONBLOCK, SIGINT, STDIN_FILENO, TCSANOW,
+    F_GETFL, F_SETFL, FD_ISSET, FD_SET, O_NONBLOCK, SIGINT, STDIN_FILENO, STDOUT_FILENO, TCSANOW,
     cfmakeraw, fcntl, tcgetattr, tcsetattr, termios,
 };
+
+const GAME_WIDTH: usize = 40;
+const GAME_HEIGHT: usize = 20;
 
 // 元のターミナル設定保持変数
 static mut ORIGINAL_TERMIOS: Option<termios> = None;
@@ -64,6 +67,52 @@ extern "C" fn signal_handler(_sig: libc::c_int) {
     }
 }
 
+fn clear_screen() {
+    write_text(b"\x1b[2J\x1b[H");
+}
+
+fn draw_border() {
+    let mut buffer = Vec::new();
+
+    buffer.push(b'+');
+    for _ in 0..GAME_WIDTH {
+        buffer.push(b'-');
+    }
+    buffer.push(b'+');
+    buffer.push(b'\r');
+    buffer.push(b'\n');
+
+    for _ in 0..GAME_HEIGHT {
+        buffer.push(b'|');
+        for _ in 0..GAME_WIDTH {
+            buffer.push(b' ');
+        }
+        buffer.push(b'|');
+        buffer.push(b'\r');
+        buffer.push(b'\n');
+    }
+
+    buffer.push(b'+');
+    for _ in 0..GAME_WIDTH {
+        buffer.push(b'-');
+    }
+    buffer.push(b'+');
+    buffer.push(b'\r');
+    buffer.push(b'\n');
+
+    write_text(&buffer);
+}
+
+fn write_text(text: &[u8]) {
+    unsafe {
+        libc::write(
+            STDOUT_FILENO,
+            text.as_ptr() as *const libc::c_void,
+            text.len(),
+        );
+    }
+}
+
 fn game_loop() {
     loop {
         let mut readfds: libc::fd_set = unsafe { mem::zeroed() };
@@ -93,6 +142,10 @@ fn game_loop() {
                 let _key = buf[0];
             }
         };
+
+        clear_screen();
+        draw_border();
+        // TODO: move_cursor
     }
 }
 
@@ -110,4 +163,15 @@ fn main() {
     };
 
     std::process::exit(code);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_escape_sequence_len() {
+        // 何バイトなのか気になっただけ
+        // よくよく考えたら LSP でバイト数表示されてたのでこのテスト意味ない...
+        let seq = b"\x1b[2J\x1b[H";
+        assert_eq!(seq.len(), 7)
+    }
 }
