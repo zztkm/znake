@@ -8,6 +8,37 @@ use libc::{
 const GAME_WIDTH: usize = 40;
 const GAME_HEIGHT: usize = 20;
 
+enum Direction {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+struct Znake {
+    segments: Vec<(usize, usize)>,
+    direction: Direction,
+}
+
+impl Znake {
+    fn new() -> Self {
+        let head = (GAME_WIDTH / 2, GAME_HEIGHT / 2);
+        Znake {
+            // `□□頭` な初期配置
+            segments: vec![head, (head.0 - 1, head.1), (head.0 - 2, head.1)],
+            direction: Direction::Right,
+        }
+    }
+
+    fn draw(&self) {
+        for (i, &(x, y)) in self.segments.iter().enumerate() {
+            let symbol = if i == 0 { b'@' } else { b'o' };
+            move_cursor(x, y);
+            write_text(&[symbol]);
+        }
+    }
+}
+
 // 元のターミナル設定保持変数
 static mut ORIGINAL_TERMIOS: Option<termios> = None;
 
@@ -71,6 +102,18 @@ fn clear_screen() {
     write_text(b"\x1b[2J\x1b[H");
 }
 
+fn move_cursor(col: usize, row: usize) {
+    let mut buffer = Vec::new();
+    // メモ: `ESC[{row};{column}H`
+    buffer.push(b'\x1b');
+    buffer.push(b'[');
+    buffer.extend_from_slice(row.to_string().as_bytes());
+    buffer.push(b';');
+    buffer.extend_from_slice(col.to_string().as_bytes());
+    buffer.push(b'H');
+    write_text(&buffer);
+}
+
 fn draw_border() {
     let mut buffer = Vec::new();
 
@@ -114,6 +157,8 @@ fn write_text(text: &[u8]) {
 }
 
 fn game_loop() {
+    let mut znake = Znake::new();
+
     loop {
         let mut readfds: libc::fd_set = unsafe { mem::zeroed() };
         unsafe {
@@ -145,7 +190,7 @@ fn game_loop() {
 
         clear_screen();
         draw_border();
-        // TODO: move_cursor
+        znake.draw();
     }
 }
 
