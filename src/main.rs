@@ -37,6 +37,26 @@ impl Znake {
             write_text(&[symbol]);
         }
     }
+
+    fn next_position(&self) -> (usize, usize) {
+        let (x, y) = self.segments[0];
+
+        // TODO: 範囲チェックどこでやる?
+        match self.direction {
+            Direction::Up => (x, y - 1),
+            Direction::Down => (x, y + 1),
+            Direction::Left => (x - 1, y),
+            Direction::Right => (x + 1, y),
+        }
+    }
+
+    fn move_znake(&mut self) {
+        let next = self.next_position();
+
+        // 頭を追加して、尾を落とす
+        self.segments.insert(0, next);
+        self.segments.pop();
+    }
 }
 
 // 元のターミナル設定保持変数
@@ -49,8 +69,10 @@ fn restore_terminal() -> Result<(), String> {
                 return Err("tcsetattr restore failed".to_string());
             }
         }
-        Ok(())
     }
+
+    write_text(b"\x1b[?25h");
+    Ok(())
 }
 
 fn init_terminal() -> Result<(), String> {
@@ -87,8 +109,13 @@ fn init_terminal() -> Result<(), String> {
             return Err("fcntl F_SETFL failed".to_string());
         }
 
-        Ok(())
     }
+
+    // TODO: DECRQM で元のカーソル状態を取得して表示 / 非表示を切り替える
+    //       ただしこの手法は DECRQM に対応しているターミナルでしか使えない
+    // カーソル非表示
+    write_text(b"\x1b[?25l");
+    Ok(())
 }
 
 extern "C" fn signal_handler(_sig: libc::c_int) {
@@ -99,6 +126,7 @@ extern "C" fn signal_handler(_sig: libc::c_int) {
 }
 
 fn clear_screen() {
+    // 画面全体を消去 / カーソルを 0, 0 に移動
     write_text(b"\x1b[2J\x1b[H");
 }
 
@@ -188,6 +216,7 @@ fn game_loop() {
             }
         };
 
+        znake.move_znake();
         clear_screen();
         draw_border();
         znake.draw();
