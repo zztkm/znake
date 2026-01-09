@@ -1,5 +1,3 @@
-use std::mem;
-
 use libc::{
     F_GETFL, F_SETFL, FD_ISSET, FD_SET, O_NONBLOCK, SIGINT, STDIN_FILENO, STDOUT_FILENO, TCSANOW,
     cfmakeraw, fcntl, tcgetattr, tcsetattr, termios,
@@ -28,6 +26,24 @@ impl Znake {
             segments: vec![head, (head.0 - 1, head.1), (head.0 - 2, head.1)],
             direction: Direction::Right,
         }
+    }
+
+    fn check_collision(&self) -> bool {
+        let head = self.segments[0];
+
+        // ゲーム画面外判定
+        if head.0 == 0 || head.0 == GAME_WIDTH || head.1 == 0 || head.1 == GAME_HEIGHT {
+            return true;
+        }
+
+        // 胴体との衝突
+        for &segment in &self.segments[1..] {
+            if segment == head {
+                return true;
+            }
+        }
+
+        false
     }
 
     fn draw(&self) {
@@ -101,7 +117,7 @@ fn restore_terminal() -> Result<(), String> {
 fn init_terminal() -> Result<(), String> {
     unsafe {
         // 元のターミナル設定を取得して保持変数に持たせる
-        let mut original_termios: termios = mem::zeroed();
+        let mut original_termios: termios = std::mem::zeroed();
         if tcgetattr(STDIN_FILENO, &mut original_termios) == -1 {
             return Err("tcgetattr failed".to_string());
         }
@@ -210,7 +226,7 @@ fn game_loop() {
     let mut znake = Znake::new();
 
     loop {
-        let mut readfds: libc::fd_set = unsafe { mem::zeroed() };
+        let mut readfds: libc::fd_set = unsafe { std::mem::zeroed() };
         unsafe {
             FD_SET(STDIN_FILENO, &mut readfds);
         };
@@ -240,6 +256,9 @@ fn game_loop() {
         };
 
         znake.move_znake();
+        if znake.check_collision() {
+            break;
+        }
         clear_screen();
         draw_border();
         znake.draw();
