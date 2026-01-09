@@ -50,6 +50,29 @@ impl Znake {
         }
     }
 
+    fn change_direction(&mut self, key: u8) {
+        let new_direction = match key {
+            b'w' | b'W' => Direction::Up,
+            b's' | b'S' => Direction::Down,
+            b'a' | b'A' => Direction::Left,
+            b'd' | b'D' => Direction::Right,
+            _ => return,
+        };
+
+        // 逆方向にはいったらあかんで
+        let is_opposite = match (&self.direction, &new_direction) {
+            (Direction::Up, Direction::Down) => true,
+            (Direction::Down, Direction::Up) => true,
+            (Direction::Left, Direction::Right) => true,
+            (Direction::Right, Direction::Left) => true,
+            _ => false,
+        };
+
+        if !is_opposite {
+            self.direction = new_direction;
+        }
+    }
+
     fn move_znake(&mut self) {
         let next = self.next_position();
 
@@ -108,7 +131,6 @@ fn init_terminal() -> Result<(), String> {
         if fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) == -1 {
             return Err("fcntl F_SETFL failed".to_string());
         }
-
     }
 
     // TODO: DECRQM で元のカーソル状態を取得して表示 / 非表示を切り替える
@@ -212,7 +234,8 @@ fn game_loop() {
             let mut buf = [0u8; 1];
             let n = unsafe { libc::read(STDIN_FILENO, buf.as_mut_ptr() as *mut libc::c_void, 1) };
             if n > 0 {
-                let _key = buf[0];
+                // TODO: 矢印キーにも対応する
+                znake.change_direction(buf[0]);
             }
         };
 
