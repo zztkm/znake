@@ -28,6 +28,29 @@ impl Znake {
         }
     }
 
+    fn change_direction(&mut self, key: u8) {
+        let new_direction = match key {
+            b'w' | b'W' => Direction::Up,
+            b's' | b'S' => Direction::Down,
+            b'a' | b'A' => Direction::Left,
+            b'd' | b'D' => Direction::Right,
+            _ => return,
+        };
+
+        // 逆方向にはいったらあかんで
+        let is_opposite = match (&self.direction, &new_direction) {
+            (Direction::Up, Direction::Down) => true,
+            (Direction::Down, Direction::Up) => true,
+            (Direction::Left, Direction::Right) => true,
+            (Direction::Right, Direction::Left) => true,
+            _ => false,
+        };
+
+        if !is_opposite {
+            self.direction = new_direction;
+        }
+    }
+
     fn check_collision(&self) -> bool {
         let head = self.segments[0];
 
@@ -54,6 +77,14 @@ impl Znake {
         }
     }
 
+    fn move_znake(&mut self) {
+        let next = self.next_position();
+
+        // 頭を追加して、尾を落とす
+        self.segments.insert(0, next);
+        self.segments.pop();
+    }
+
     fn next_position(&self) -> (usize, usize) {
         let (x, y) = self.segments[0];
 
@@ -66,36 +97,10 @@ impl Znake {
         }
     }
 
-    fn change_direction(&mut self, key: u8) {
-        let new_direction = match key {
-            b'w' | b'W' => Direction::Up,
-            b's' | b'S' => Direction::Down,
-            b'a' | b'A' => Direction::Left,
-            b'd' | b'D' => Direction::Right,
-            _ => return,
-        };
-
-        // 逆方向にはいったらあかんで
-        let is_opposite = match (&self.direction, &new_direction) {
-            (Direction::Up, Direction::Down) => true,
-            (Direction::Down, Direction::Up) => true,
-            (Direction::Left, Direction::Right) => true,
-            (Direction::Right, Direction::Left) => true,
-            _ => false,
-        };
-
-        if !is_opposite {
-            self.direction = new_direction;
-        }
+    fn score(&self) -> usize {
+        self.segments.len().saturating_sub(3)
     }
 
-    fn move_znake(&mut self) {
-        let next = self.next_position();
-
-        // 頭を追加して、尾を落とす
-        self.segments.insert(0, next);
-        self.segments.pop();
-    }
 }
 
 // 元のターミナル設定保持変数
@@ -220,6 +225,9 @@ fn write_text(text: &[u8]) {
             text.len(),
         );
     }
+}
+
+fn show_gameover() {
 }
 
 fn game_loop() {
