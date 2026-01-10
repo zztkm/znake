@@ -60,7 +60,8 @@ impl Znake {
         let head = self.segments[0];
 
         // ゲーム画面外判定
-        if head.0 == 0 || head.0 == GAME_WIDTH || head.1 == 0 || head.1 == GAME_HEIGHT {
+        // それぞれ + 1 しておかないと見た目と判定結果にギャップが生じるのでこうしてる
+        if head.0 == 1 || head.0 == GAME_WIDTH + 1 || head.1 == 1 || head.1 == GAME_HEIGHT + 1 {
             return true;
         }
 
