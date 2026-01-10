@@ -6,6 +6,11 @@ use libc::{
 const GAME_WIDTH: usize = 40;
 const GAME_HEIGHT: usize = 20;
 
+enum GameState {
+    Game,
+    GameOver { score: usize },
+}
+
 enum Direction {
     Up,
     Down,
@@ -100,7 +105,6 @@ impl Znake {
     fn score(&self) -> usize {
         self.segments.len().saturating_sub(3)
     }
-
 }
 
 // 元のターミナル設定保持変数
@@ -227,11 +231,33 @@ fn write_text(text: &[u8]) {
     }
 }
 
-fn show_gameover() {
+// この関数を loop ごとに呼び出すと重くなって描画した文字が点滅する
+// そのため、基本は 1 度読んだら連続して呼ばないほうが良い。
+// TODO: Game Over 内の表示を動的なものにしたくなったら改善を考える
+fn draw_game_over_screen(score: usize) {
+    let game_over_msg = b"GAME OVER!";
+    let col = (GAME_WIDTH - game_over_msg.len()) / 2 + 2;
+    let row = GAME_HEIGHT / 2 - 3;
+    move_cursor(col, row);
+    write_text(game_over_msg);
+
+    let score_str = score.to_string();
+    let score_msg = format!("Score: {}", score_str);
+    move_cursor((GAME_WIDTH - score_msg.len()) / 2 + 2, row + 3);
+    write_text(score_msg.as_bytes());
+
+    let retry_msg = b"Press ENTER to retry";
+    move_cursor((GAME_WIDTH - retry_msg.len()) / 2 + 2, row + 6);
+    write_text(retry_msg);
+
+    let exit_msg = b"Press ctrl+c to exit";
+    move_cursor((GAME_WIDTH - exit_msg.len()) / 2 + 2, row + 7);
+    write_text(exit_msg);
 }
 
-fn game_loop() {
-    let mut znake = Znake::new();
+fn game_loop(znake: &mut Znake) {
+    let mut state = GameState::Game;
+    let mut game_over_shown = false;
 
     loop {
         let mut readfds: libc::fd_set = unsafe { std::mem::zeroed() };
@@ -258,25 +284,54 @@ fn game_loop() {
             let mut buf = [0u8; 1];
             let n = unsafe { libc::read(STDIN_FILENO, buf.as_mut_ptr() as *mut libc::c_void, 1) };
             if n > 0 {
-                // TODO: 矢印キーにも対応する
-                znake.change_direction(buf[0]);
+                match state {
+                    GameState::Game => {
+                        // TODO: 矢印キーにも対応する
+                        znake.change_direction(buf[0]);
+                    }
+                    GameState::GameOver { score: _ } => {
+                        if buf[0] == b'\n' || buf[0] == b'\r' {
+                            break;
+                        }
+                    }
+                }
             }
         };
 
-        znake.move_znake();
-        if znake.check_collision() {
-            break;
+        match state {
+            GameState::Game => {
+                znake.move_znake();
+                if znake.check_collision() {
+                    let score = znake.score();
+                    state = GameState::GameOver { score };
+                }
+                clear_screen();
+                draw_border();
+                znake.draw();
+            }
+            GameState::GameOver { score } => {
+                if !game_over_shown {
+                    draw_game_over_screen(score);
+                    game_over_shown = true;
+                }
+            }
         }
-        clear_screen();
-        draw_border();
-        znake.draw();
+    }
+}
+
+fn main_loop() {
+    loop {
+        // GameOver 状態中に Enter を押した場合に
+        // game_loop を初期化してリスタートする
+        let mut znake = Znake::new();
+        game_loop(&mut znake);
     }
 }
 
 fn main() {
     let code = match init_terminal() {
         Ok(()) => {
-            game_loop();
+            main_loop();
             let _ = restore_terminal();
             0
         }
