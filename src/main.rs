@@ -1,6 +1,5 @@
-use libc::{
-    F_GETFL, F_SETFL, FD_ISSET, FD_SET, O_NONBLOCK, SIGINT, STDIN_FILENO, STDOUT_FILENO, TCSANOW,
-    cfmakeraw, fcntl, tcgetattr, tcsetattr, termios,
+use znake::terminal::{
+    clear_screen, init_terminal, move_cursor, read_key_with_timeout, write_text,
 };
 
 const GAME_WIDTH: usize = 40;
@@ -16,6 +15,127 @@ enum Direction {
     Down,
     Left,
     Right,
+}
+
+fn draw_border() {
+    let mut buffer = Vec::new();
+
+    buffer.push(b'+');
+    for _ in 0..GAME_WIDTH {
+        buffer.push(b'-');
+    }
+    buffer.push(b'+');
+    buffer.push(b'\r');
+    buffer.push(b'\n');
+
+    for _ in 0..GAME_HEIGHT {
+        buffer.push(b'|');
+        for _ in 0..GAME_WIDTH {
+            buffer.push(b' ');
+        }
+        buffer.push(b'|');
+        buffer.push(b'\r');
+        buffer.push(b'\n');
+    }
+
+    buffer.push(b'+');
+    for _ in 0..GAME_WIDTH {
+        buffer.push(b'-');
+    }
+    buffer.push(b'+');
+    buffer.push(b'\r');
+    buffer.push(b'\n');
+
+    write_text(&buffer);
+}
+
+// この関数を loop ごとに呼び出すと重くなって描画した文字が点滅する
+// そのため、基本は 1 度読んだら連続して呼ばないほうが良い。
+// TODO: Game Over 内の表示を動的なものにしたくなったら改善を考える
+fn draw_game_over_screen(score: usize) {
+    let game_over_msg = b"GAME OVER!";
+    let col = (GAME_WIDTH - game_over_msg.len()) / 2 + 2;
+    let row = GAME_HEIGHT / 2 - 3;
+    move_cursor(col, row);
+    write_text(game_over_msg);
+
+    let score_str = score.to_string();
+    let score_msg = format!("Score: {}", score_str);
+    move_cursor((GAME_WIDTH - score_msg.len()) / 2 + 2, row + 3);
+    write_text(score_msg.as_bytes());
+
+    let retry_msg = b"Press ENTER to retry";
+    move_cursor((GAME_WIDTH - retry_msg.len()) / 2 + 2, row + 6);
+    write_text(retry_msg);
+
+    let exit_msg = b"Press ctrl+c to exit";
+    move_cursor((GAME_WIDTH - exit_msg.len()) / 2 + 2, row + 7);
+    write_text(exit_msg);
+}
+
+fn game_loop(znake: &mut Znake) {
+    let mut state = GameState::Game;
+    let mut game_over_shown = false;
+
+    loop {
+        if let Some(key) = read_key_with_timeout(50) {
+            match state {
+                GameState::Game => {
+                    // TODO: 矢印キーにも対応する
+                    znake.change_direction(key);
+                }
+                GameState::GameOver { score: _ } => {
+                    if key == b'\n' || key == b'\r' {
+                        break;
+                    }
+                }
+            }
+        }
+
+        match state {
+            GameState::Game => {
+                znake.move_znake();
+                if znake.check_collision() {
+                    let score = znake.score();
+                    state = GameState::GameOver { score };
+                }
+                clear_screen();
+                draw_border();
+                znake.draw();
+            }
+            GameState::GameOver { score } => {
+                if !game_over_shown {
+                    draw_game_over_screen(score);
+                    game_over_shown = true;
+                }
+            }
+        }
+    }
+}
+
+fn main_loop() {
+    loop {
+        // GameOver 状態中に Enter を押した場合に
+        // game_loop を初期化してリスタートする
+        let mut znake = Znake::new();
+        game_loop(&mut znake);
+    }
+}
+
+fn main() {
+    let code = match init_terminal() {
+        Ok(()) => {
+            main_loop();
+            // let _ = restore_terminal();
+            0
+        }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            1
+        }
+    };
+
+    std::process::exit(code);
 }
 
 struct Znake {
@@ -106,243 +226,6 @@ impl Znake {
     fn score(&self) -> usize {
         self.segments.len().saturating_sub(3)
     }
-}
-
-// 元のターミナル設定保持変数
-static mut ORIGINAL_TERMIOS: Option<termios> = None;
-
-fn restore_terminal() -> Result<(), String> {
-    unsafe {
-        if let Some(original) = ORIGINAL_TERMIOS {
-            if tcsetattr(STDIN_FILENO, TCSANOW, &original) == -1 {
-                return Err("tcsetattr restore failed".to_string());
-            }
-        }
-    }
-
-    write_text(b"\x1b[?25h");
-    Ok(())
-}
-
-fn init_terminal() -> Result<(), String> {
-    unsafe {
-        // 元のターミナル設定を取得して保持変数に持たせる
-        let mut original_termios: termios = std::mem::zeroed();
-        if tcgetattr(STDIN_FILENO, &mut original_termios) == -1 {
-            return Err("tcgetattr failed".to_string());
-        }
-        ORIGINAL_TERMIOS = Some(original_termios);
-
-        // raw mode 設定
-        let mut raw_termios = original_termios;
-        cfmakeraw(&mut raw_termios);
-        // cfmakeraw でシグナルを生成する ISIG が無効化される
-        // このゲームは Ctrl + c で終了したいので、ISIG を有効化する必要がある
-        raw_termios.c_lflag |= libc::ISIG;
-
-        // raw_termios をターミナルに反映する
-        if tcsetattr(STDIN_FILENO, TCSANOW, &raw_termios) == -1 {
-            return Err("tcsetattr failed".to_string());
-        }
-
-        let old_handler = libc::signal(SIGINT, signal_handler as libc::sighandler_t);
-        if old_handler == libc::SIG_ERR {
-            return Err("signal failed".to_string());
-        }
-
-        let flags = fcntl(STDIN_FILENO, F_GETFL);
-        if flags == -1 {
-            return Err("fcntl F_GETFL failed".to_string());
-        }
-        if fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) == -1 {
-            return Err("fcntl F_SETFL failed".to_string());
-        }
-    }
-
-    // TODO: DECRQM で元のカーソル状態を取得して表示 / 非表示を切り替える
-    //       ただしこの手法は DECRQM に対応しているターミナルでしか使えない
-    // カーソル非表示
-    write_text(b"\x1b[?25l");
-    Ok(())
-}
-
-extern "C" fn signal_handler(_sig: libc::c_int) {
-    unsafe {
-        let _ = restore_terminal();
-        libc::exit(0);
-    }
-}
-
-fn clear_screen() {
-    // 画面全体を消去 / カーソルを 0, 0 に移動
-    write_text(b"\x1b[2J\x1b[H");
-}
-
-fn move_cursor(col: usize, row: usize) {
-    let mut buffer = Vec::new();
-    // メモ: `ESC[{row};{column}H`
-    buffer.push(b'\x1b');
-    buffer.push(b'[');
-    buffer.extend_from_slice(row.to_string().as_bytes());
-    buffer.push(b';');
-    buffer.extend_from_slice(col.to_string().as_bytes());
-    buffer.push(b'H');
-    write_text(&buffer);
-}
-
-fn draw_border() {
-    let mut buffer = Vec::new();
-
-    buffer.push(b'+');
-    for _ in 0..GAME_WIDTH {
-        buffer.push(b'-');
-    }
-    buffer.push(b'+');
-    buffer.push(b'\r');
-    buffer.push(b'\n');
-
-    for _ in 0..GAME_HEIGHT {
-        buffer.push(b'|');
-        for _ in 0..GAME_WIDTH {
-            buffer.push(b' ');
-        }
-        buffer.push(b'|');
-        buffer.push(b'\r');
-        buffer.push(b'\n');
-    }
-
-    buffer.push(b'+');
-    for _ in 0..GAME_WIDTH {
-        buffer.push(b'-');
-    }
-    buffer.push(b'+');
-    buffer.push(b'\r');
-    buffer.push(b'\n');
-
-    write_text(&buffer);
-}
-
-fn write_text(text: &[u8]) {
-    unsafe {
-        libc::write(
-            STDOUT_FILENO,
-            text.as_ptr() as *const libc::c_void,
-            text.len(),
-        );
-    }
-}
-
-// この関数を loop ごとに呼び出すと重くなって描画した文字が点滅する
-// そのため、基本は 1 度読んだら連続して呼ばないほうが良い。
-// TODO: Game Over 内の表示を動的なものにしたくなったら改善を考える
-fn draw_game_over_screen(score: usize) {
-    let game_over_msg = b"GAME OVER!";
-    let col = (GAME_WIDTH - game_over_msg.len()) / 2 + 2;
-    let row = GAME_HEIGHT / 2 - 3;
-    move_cursor(col, row);
-    write_text(game_over_msg);
-
-    let score_str = score.to_string();
-    let score_msg = format!("Score: {}", score_str);
-    move_cursor((GAME_WIDTH - score_msg.len()) / 2 + 2, row + 3);
-    write_text(score_msg.as_bytes());
-
-    let retry_msg = b"Press ENTER to retry";
-    move_cursor((GAME_WIDTH - retry_msg.len()) / 2 + 2, row + 6);
-    write_text(retry_msg);
-
-    let exit_msg = b"Press ctrl+c to exit";
-    move_cursor((GAME_WIDTH - exit_msg.len()) / 2 + 2, row + 7);
-    write_text(exit_msg);
-}
-
-fn game_loop(znake: &mut Znake) {
-    let mut state = GameState::Game;
-    let mut game_over_shown = false;
-
-    loop {
-        let mut readfds: libc::fd_set = unsafe { std::mem::zeroed() };
-        unsafe {
-            FD_SET(STDIN_FILENO, &mut readfds);
-        };
-
-        // 50ms
-        let mut timeout = libc::timeval {
-            tv_sec: 0,
-            tv_usec: 50000,
-        };
-        let ret = unsafe {
-            libc::select(
-                STDIN_FILENO + 1,
-                &mut readfds,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &mut timeout,
-            )
-        };
-
-        if ret > 0 && unsafe { FD_ISSET(STDIN_FILENO, &mut readfds) } {
-            let mut buf = [0u8; 1];
-            let n = unsafe { libc::read(STDIN_FILENO, buf.as_mut_ptr() as *mut libc::c_void, 1) };
-            if n > 0 {
-                match state {
-                    GameState::Game => {
-                        // TODO: 矢印キーにも対応する
-                        znake.change_direction(buf[0]);
-                    }
-                    GameState::GameOver { score: _ } => {
-                        if buf[0] == b'\n' || buf[0] == b'\r' {
-                            break;
-                        }
-                    }
-                }
-            }
-        };
-
-        match state {
-            GameState::Game => {
-                znake.move_znake();
-                if znake.check_collision() {
-                    let score = znake.score();
-                    state = GameState::GameOver { score };
-                }
-                clear_screen();
-                draw_border();
-                znake.draw();
-            }
-            GameState::GameOver { score } => {
-                if !game_over_shown {
-                    draw_game_over_screen(score);
-                    game_over_shown = true;
-                }
-            }
-        }
-    }
-}
-
-fn main_loop() {
-    loop {
-        // GameOver 状態中に Enter を押した場合に
-        // game_loop を初期化してリスタートする
-        let mut znake = Znake::new();
-        game_loop(&mut znake);
-    }
-}
-
-fn main() {
-    let code = match init_terminal() {
-        Ok(()) => {
-            main_loop();
-            let _ = restore_terminal();
-            0
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            1
-        }
-    };
-
-    std::process::exit(code);
 }
 
 #[cfg(test)]
