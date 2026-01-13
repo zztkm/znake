@@ -74,6 +74,7 @@ fn draw_game_over_screen(score: usize) {
 }
 
 fn game_loop(znake: &mut Znake) {
+    let mut food = Food::new();
     let mut state = GameState::Game;
     let mut game_over_shown = false;
 
@@ -95,6 +96,10 @@ fn game_loop(znake: &mut Znake) {
         match state {
             GameState::Game => {
                 znake.move_znake();
+                if znake.segments[0] == (food.x, food.y) {
+                    znake.grow();
+                    food = Food::new();
+                }
                 if znake.check_collision() {
                     let score = znake.score();
                     state = GameState::GameOver { score };
@@ -102,6 +107,7 @@ fn game_loop(znake: &mut Znake) {
                 clear_screen();
                 draw_border();
                 znake.draw();
+                food.draw();
             }
             GameState::GameOver { score } => {
                 if !game_over_shown {
@@ -203,6 +209,11 @@ impl Znake {
         }
     }
 
+    fn grow(&mut self) {
+        let next = self.next_position();
+        self.segments.insert(0, next);
+    }
+
     fn move_znake(&mut self) {
         let next = self.next_position();
 
@@ -225,6 +236,25 @@ impl Znake {
 
     fn score(&self) -> usize {
         self.segments.len().saturating_sub(3)
+    }
+}
+
+struct Food {
+    pub x: usize,
+    pub y: usize,
+}
+
+impl Food {
+    pub fn new() -> Self {
+        let seed = unsafe { libc::time(std::ptr::null_mut()) } as usize;
+        let x = (seed % (GAME_WIDTH - 2)) + 2;
+        let y = ((seed / GAME_WIDTH) % (GAME_HEIGHT - 2)) + 2;
+        Food { x, y }
+    }
+
+    pub fn draw(&self) {
+        move_cursor(self.x, self.y);
+        write_text(b"*");
     }
 }
 
