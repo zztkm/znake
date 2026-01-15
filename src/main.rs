@@ -79,7 +79,7 @@ fn game_loop(znake: &mut Znake) {
     let mut game_over_shown = false;
 
     loop {
-        if let Some(key) = read_key_with_timeout(50) {
+        if let Some(key) = read_key_with_timeout(znake.speed) {
             match state {
                 GameState::Game => {
                     // TODO: 矢印キーにも対応する
@@ -147,6 +147,8 @@ fn main() {
 struct Znake {
     segments: Vec<(usize, usize)>,
     direction: Direction,
+    speed: u64,
+    max_speed: u64,
 }
 
 impl Znake {
@@ -154,8 +156,11 @@ impl Znake {
         let head = (GAME_WIDTH / 2, GAME_HEIGHT / 2);
         Znake {
             // `□□頭` な初期配置
+            // speed は timeout 秒なので短いほうがはやい
             segments: vec![head, (head.0 - 1, head.1), (head.0 - 2, head.1)],
             direction: Direction::Right,
+            speed: 100,
+            max_speed: 10,
         }
     }
 
@@ -212,6 +217,11 @@ impl Znake {
     fn grow(&mut self) {
         let next = self.next_position();
         self.segments.insert(0, next);
+        self.increase_spped();
+    }
+
+    fn increase_spped(&mut self) {
+        self.speed = std::cmp::max(self.max_speed, self.speed - 5);
     }
 
     fn move_znake(&mut self) {
