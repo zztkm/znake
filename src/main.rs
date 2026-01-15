@@ -246,9 +246,20 @@ struct Food {
 
 impl Food {
     pub fn new() -> Self {
-        let seed = unsafe { libc::time(std::ptr::null_mut()) } as usize;
-        let x = (seed % (GAME_WIDTH - 2)) + 2;
-        let y = ((seed / GAME_WIDTH) % (GAME_HEIGHT - 2)) + 2;
+        let seed = unsafe {
+            libc::time(std::ptr::null_mut()) as usize ^
+            libc::getpid() as usize
+        };
+
+        // かんたんな線形合同法（LCG）による乱数生成
+        // zztkm はよくわかっておらず Claude Code (haiku) の提案で実装してみた
+        let a: usize = 1664525;
+        let c: usize = 1013904223;
+        let m: usize = usize::MAX;
+        let random = (a.wrapping_mul(seed).wrapping_add(c)) % m;
+
+        let x = (random % (GAME_WIDTH - 2)) + 2;
+        let y = ((random / GAME_WIDTH) % (GAME_HEIGHT - 2)) + 2;
         Food { x, y }
     }
 
