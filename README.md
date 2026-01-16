@@ -2,6 +2,32 @@
 
 snake game with only libc.
 
+```bash
++----------------------------------------+
+|                                        |
+|                                        |
+|         *                              |
+|                                        |
+|                                        |
+|               GAME OVER!               |
+|                                        |
+|                                        |
+|                Score: 6       oooooooo@|
+|                                        |
+|                                        |
+|          Press ENTER to retry          |
+|          Press ctrl+c to exit          |
+|                                        |
+|                                        |
+|                                        |
+|                                        |
+|                                        |
+|                                        |
+|                                        |
++----------------------------------------+
+```
+
+
 ## 参考リンク
 
 libc の termios について詳細を見る場合は https://www.man7.org/linux/man-pages/man3/termios.3.html を見ると良い。
